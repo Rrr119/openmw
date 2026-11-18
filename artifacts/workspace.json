@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid24895",
+  "B": "/home/dev/feedback/uid24895",
+  "sha": "eb2d2e7961dbf8da42ebf251bb82b45a58a8e99b",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "OpenMW",
+    "repo": "openmw",
+    "sha": "eb2d2e7961dbf8da42ebf251bb82b45a58a8e99b"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "openmw",
+    "cloneUrl": "https://github.com/Rrr119/openmw.git"
+  },
+  "at": "2026-11-18T03:41:19.021Z"
+}

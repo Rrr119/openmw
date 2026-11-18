@@ -23,6 +23,14 @@ const float BUMP = 0.5;                            // overall water surface bump
 const float BUMP_RAIN = 2.5;
 const float REFL_BUMP = 0.10;                      // reflection distortion amount
 
+// Fade wave detail and planar reflections before the far plane. At long distances a
+// pixel covers many wave normals, so keeping the full perturbation makes reflections
+// sparkle and crawl as the camera moves.
+const float WAVE_DETAIL_FADE_START = 0.2;           // fraction of the view distance
+const float WAVE_DETAIL_FADE_END = 0.7;
+const float REFLECTION_FADE_START = 0.5;
+const float REFLECTION_FADE_END = 0.95;
+
 #if @sunlightScattering
 const float SCATTER_AMOUNT = 0.3;                  // amount of sunlight scattering
 const vec3 SCATTER_COLOUR = vec3(0.0,1.0,0.95);    // colour of sunlight scattering
@@ -107,6 +115,10 @@ void main(void)
     float shadow = unshadowedLightRatio(linearDepth);
 
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
+    vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
+    float surfaceDistance = distance(worldPos, cameraPos);
+    float waveDetailFade = 1.0 - smoothstep(WAVE_DETAIL_FADE_START * far, WAVE_DETAIL_FADE_END * far, surfaceDistance);
+    float reflectionFade = 1.0 - smoothstep(REFLECTION_FADE_START * far, REFLECTION_FADE_END * far, surfaceDistance);
 
     #define waterTimer osg_SimulationTime
 
@@ -140,15 +152,16 @@ void main(void)
     vec3 normal = (normal0 * bigWaves.x + normal1 * bigWaves.y + normal2 * midWaves.x +
                    normal3 * midWaves.y + normal4 * smallWaves.x + normal5 * smallWaves.y + rippleAdd);
     normal = normalize(vec3(-normal.x * bump, -normal.y * bump, normal.z));
+    normal = normalize(mix(vec3(0.0, 0.0, 1.0), normal, waveDetailFade));
 
     vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * sun.position).xyz);
-    vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
-    vec3 viewDir = normalize(position.xyz - cameraPos.xyz);
+    // position is local to the water node, so Fresnel must use the world-space surface point.
+    vec3 viewDir = normalize(worldPos - cameraPos);
 
     float sunFade = length(sun.ambient.xyz);
 
 #if @radialFog
-    float radialDepth = distance(position.xyz, cameraPos);
+    float radialDepth = surfaceDistance;
 #else
     float radialDepth = 0.0;
 #endif
@@ -158,10 +171,10 @@ void main(void)
     computeFog(passViewPos, radialDepth, linearDepth, near, far, fogScale, fogOffset);
 
     // fresnel
-    float ior = (cameraPos.z>=0.0)?(1.333/1.0):(1.0/1.333); // air to water; water to air
+    float ior = (cameraPos.z>=waterHeight)?(1.333/1.0):(1.0/1.333); // air to water; water to air
     float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
 
-    vec2 reflectionCoordsOffset = normal.xy * REFL_BUMP;
+    vec2 reflectionCoordsOffset = normal.xy * REFL_BUMP * reflectionFade;
     vec2 refractionCoordsOffset = vec2(0.0);
     float depthSample = linearizeDepth(sampleOpaqueDepthTex(screenCoords).r, near, far);
     float surfaceDepth = linearizeDepth(gl_FragCoord.z, near, far);
@@ -222,6 +235,7 @@ void main(void)
     vec3 scatterNormal = (normal0 * bigWaves.x * 0.5 + normal1 * bigWaves.y * 0.5 + normal2 * midWaves.x * 0.2 +
                           normal3 * midWaves.y * 0.2 + normal4 * smallWaves.x * 0.1 + normal5 * smallWaves.y * 0.1 + rippleAdd);
     scatterNormal = normalize(vec3(-scatterNormal.xy * bump, scatterNormal.z));
+    scatterNormal = normalize(mix(vec3(0.0, 0.0, 1.0), scatterNormal, waveDetailFade));
     float sunHeight = sunWorldDir.z;
     vec3 scatterColour = mix(SCATTER_COLOUR * vec3(1.0, 0.4, 0.0), SCATTER_COLOUR, max(1.0 - exp(-sunHeight * SUN_EXT), 0.0));
     float scatterLambert = max(dot(sunWorldDir, scatterNormal) * 0.7 + 0.3, 0.0);
@@ -230,7 +244,7 @@ void main(void)
     refraction = mix(refraction, scatterColour * fogScale + fogOffset, lightScatter);
 #endif
 
-    gl_FragData[0].rgb = mix(refraction, reflection, fresnel);
+    gl_FragData[0].rgb = mix(refraction, reflection, fresnel * reflectionFade);
     gl_FragData[0].a = 1.0;
     // no alpha here, so make sure raindrop ripple specularity gets properly subdued
     rainSpecular *= waterTransparency;
